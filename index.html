@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WinGo AI Predictor Pro - Python Mapped</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #000; overflow: hidden; }
+        #siteFrame { width: 100%; height: 100vh; border: none; }
+
+        /* Draggable Box */
+        #prediction-float {
+            position: fixed;
+            top: 70px;
+            left: 20px;
+            width: 190px;
+            background: rgba(15, 15, 15, 0.98);
+            border: 2px solid #ffeb3b;
+            border-radius: 15px;
+            padding: 12px;
+            text-align: center;
+            z-index: 10000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            color: white;
+            cursor: move;
+            touch-action: none;
+        }
+
+        .drag-handle { width: 40px; height: 4px; background: #444; margin: 0 auto 10px; border-radius: 5px; }
+        .res-title { font-size: 11px; color: #888; letter-spacing: 1.5px; font-weight: bold; }
+        .res-value { font-size: 36px; font-weight: 900; margin: 10px 0; min-height: 48px; }
+        .res-meta { font-size: 11px; color: #ffeb3b; border-top: 1px solid #333; padding-top: 10px; font-family: monospace; }
+        .conf { color: #ff5722; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="prediction-float">
+    <div class="drag-handle"></div>
+    <div class="res-title">FINAL PREDICTION</div>
+    <div id="final-prediction" class="res-value">WAITING</div>
+    <div class="res-meta">
+        ISSUE: <span id="issue-num">----</span><br>
+        CONFIDENCE: <span id="conf-val" class="conf">0</span>
+    </div>
+</div>
+
+<iframe id="siteFrame" src="https://www.lottery7qq.com/#/register"></iframe>
+
+<script>
+// ================= DRAG LOGIC =================
+const dragBox = document.getElementById("prediction-float");
+let active = false, currentX, currentY, initialX, initialY, xOff = 0, yOff = 0;
+
+function dStart(e) {
+    initialX = (e.type === "touchstart" ? e.touches[0].clientX : e.clientX) - xOff;
+    initialY = (e.type === "touchstart" ? e.touches[0].clientY : e.clientY) - yOff;
+    if (e.target.closest("#prediction-float")) active = true;
+}
+function dEnd() { initialX = currentX; initialY = currentY; active = false; }
+function dMove(e) {
+    if (active) {
+        e.preventDefault();
+        currentX = (e.type === "touchmove" ? e.touches[0].clientX : e.clientX) - initialX;
+        currentY = (e.type === "touchmove" ? e.touches[0].clientY : e.clientY) - initialY;
+        xOff = currentX; yOff = currentY;
+        dragBox.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
+    }
+}
+document.addEventListener("touchstart", dStart, {passive:false}); document.addEventListener("touchend", dEnd); document.addEventListener("touchmove", dMove, {passive:false});
+document.addEventListener("mousedown", dStart); document.addEventListener("mouseup", dEnd); document.addEventListener("mousemove", dMove);
+
+// ================= EXACT PYTHON RULES & ENGINE =================
+const API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json";
+let LAST_ISSUE = null;
+
+const rules = {
+    triple_rules: {"111":{"Big":98},"222":{"Small":98},"333":{"Big":98},"444":{"Big":98},"555":{"Big":98},"666":{"Small":98},"777":{"Small":98},"888":{"Big":98},"999":{"Big":98},"000":{"Big":98}},
+    pair_rules: {"08":{"Small":59},"05":{"Small":59,"Big":59},"06":{"Small":59},"15":{"Small":59}},
+    color_clusters: {"🔴🔴🔴🔴":{"Big":91},"🟢🟢🟢🟢":{"Small":91},"🔴🔴🔴🔴🔴":{"Small":91},"🟢🟢🟢🟢🟢":{"Small":91},"🔴🔴🔴🔴🔴🔴":{"Big":95},"🟢🟢🟢🟢🟢🟢":{"Small":95}},
+    size_patterns: {"SmallBigSmall":{"🟢":60},"BigSmallBig":{"🔴":60},"SmallSmallBigBig":{"🔴":65},"BigBigSmallSmall":{"🟢":65},"BigBigSmallBig":{"🔴":65},"SmallSmallBigSmall":{"🟢":65}},
+    long_size_patterns: {"BBBB":{"🔴":90},"SSSS":{"🟢":90},"SSSSSS":{"🔴":95},"BBBBBB":{"🟢":95}},
+    combo_rules: {
+        "🔴-Big|🟢-Big|🔴-Big":{"Small":70},"🟢-Big|🔴-Big|🟢-Big":{"Big":70},"🟢-Small|🔴-Small|🟢-Small":{"Small":70},"🔴-Small|🟢-Small|🔴-Small":{"Small":70},
+        "🔴-Small|🔴-Big|🔴-Big":{"Big":75},"🔴-Small|🔴-Small|🔴-Big":{"Big":75},"🔴-Big|🔴-Small|🔴-Big":{"Big":75},"🔴-Small|🔴-Big|🔴-Small":{"Big":75},
+        "🟢-Small|🟢-Big|🟢-Big":{"Small":75},"🟢-Big|🟢-Big|🟢-Small":{"Small":75},"🟢-Small|🟢-Small|🟢-Big":{"Small":75},"🟢-Big|🟢-Small|🟢-Big":{"Small":75},"🟢-Small|🟢-Big|🟢-Small":{"Small":75}
+    }
+};
+
+const get_size = (n) => n >= 5 ? "Big" : "Small";
+const get_color = (n) => n % 2 === 0 ? "🔴" : "🟢";
+
+// Python-style fuzzy: sum(1 for x,y in zip(a,b) if x==y) / max(len(a),len(b))
+function pythonFuzzy(a, b) {
+    let matches = 0;
+    let len = Math.min(a.length, b.length);
+    for(let i=0; i<len; i++) { if(a[i] === b[i]) matches++; }
+    return matches / Math.max(a.length, b.length);
+}
+
+async function predict() {
+    try {
+        const response = await fetch(API_URL);
+        const json = await response.json();
+        const data = json.data.list;
+        if(!data || data.length < 10) return;
+
+        const current_issue = data[0].issueNumber;
+        if(current_issue === LAST_ISSUE) return;
+        LAST_ISSUE = current_issue;
+        document.getElementById('issue-num').innerText = current_issue;
+
+        const latest = data.slice(0, 10).reverse();
+        const numbers = latest.map(x => parseInt(x.number));
+        const sizes = numbers.map(n => get_size(n));
+        const colors = numbers.map(n => get_color(n));
+
+        let hits = [];
+
+        // Triple
+        let triple = numbers.slice(-4, -1).join("");
+        if(rules.triple_rules[triple]) hits.push(rules.triple_rules[triple]);
+
+        // Pair
+        let pair = numbers.slice(-3, -1).join("");
+        if(rules.pair_rules[pair]) hits.push(rules.pair_rules[pair]);
+
+        // Color Cluster (Python score > 0.5)
+        let color_seq = colors.slice(-5, -1).join("");
+        for(let [k, v] of Object.entries(rules.color_clusters)) {
+            if(pythonFuzzy(color_seq, k) > 0.5) hits.push(v);
+        }
+
+        // Size Pattern
+        let size_seq = sizes.slice(-4, -1).join("");
+        if(rules.size_patterns[size_seq]) hits.push(rules.size_patterns[size_seq]);
+
+        // Long Size Pattern (Exact Python BBBB extraction)
+        let long_seq = sizes.slice(-4).map(s => s[0]).join("");
+        if(rules.long_size_patterns[long_seq]) hits.push(rules.long_size_patterns[long_seq]);
+
+        // Combo Rule (Python logic)
+        let combo_parts = [];
+        for(let i = numbers.length - 4; i < numbers.length - 1; i++) {
+            combo_parts.push(`${colors[i]}-${sizes[i]}`);
+        }
+        let combo_str = combo_parts.join("|");
+        for(let [k, v] of Object.entries(rules.combo_rules)) {
+            if(pythonFuzzy(combo_str, k) > 0.5) hits.push(v);
+        }
+
+        // --- Python Decision Logic ---
+        let score = {};
+        hits.forEach(dataObj => {
+            for(let [k, v] of Object.entries(dataObj)) {
+                score[k] = (score[k] || 0) + v;
+            }
+        });
+
+        let final = "Waiting", conf = 0;
+        let scoreKeys = Object.keys(score);
+
+        if(scoreKeys.length > 0) {
+            // Python Priority: Emojis first
+            let emojis = scoreKeys.filter(k => k === "🔴" || k === "🟢");
+            if(emojis.length > 0) {
+                final = emojis.reduce((a, b) => score[a] > score[b] ? a : b);
+            } else {
+                final = scoreKeys.reduce((a, b) => score[a] > score[b] ? a : b);
+            }
+            conf = score[final];
+        }
+
+        const resEl = document.getElementById('final-prediction');
+        resEl.innerText = final;
+        document.getElementById('conf-val').innerText = conf;
+
+        // Apply Python Color mapping to UI
+        if(final === "Big" || final === "🔴") resEl.style.color = "#ff4444";
+        else if(final === "Small" || final === "🟢") resEl.style.color = "#00c853";
+        else resEl.style.color = "#ffffff";
+
+    } catch (err) { console.error("API Fetch Failed"); }
+}
+
+setInterval(predict, 2000);
+predict();
+</script>
+
+</body>
+</html>
